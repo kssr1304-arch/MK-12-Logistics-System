@@ -1,1 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>MK-12 WAREHOUSE</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+    body { background-color: #050505; color: #00f3ff; font-family: 'Share Tech Mono', monospace; margin: 0; padding: 10px; user-select: none; background-image: linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px); background-size: 30px 30px; }
+    
+    header { border-bottom: 2px solid #00f3ff; padding-bottom: 5px; margin-bottom: 15px; display:flex; justify-content:space-between; align-items:center; text-shadow: 0 0 10px #00f3ff; }
+    #pingDisplay { color: #00ff88; font-weight: bold; font-size: 14px; text-shadow: 0 0 5px #00ff88; }
+    
+    .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 600px; margin: 0 auto; }
+    .panel { background: rgba(10, 20, 30, 0.9); border: 1px solid #00f3ff; padding: 15px; position: relative; clip-path: polygon(15px 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%, 0 15px); box-shadow: 0 0 15px rgba(0, 243, 255, 0.1); }
+    .panel-title { font-size: 12px; color: #00ff88; position: absolute; top: 2px; right: 15px; opacity: 0.8; letter-spacing: 1px; }
+    
+    .d-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+    .btn { background: rgba(0, 243, 255, 0.1); color: #00f3ff; border: 1px solid #00f3ff; border-radius: 5px; height: 50px; font-size: 24px; display: flex; align-items: center; justify-content: center; }
+    .btn:active { background: #00f3ff; color: #000; box-shadow: 0 0 20px #00f3ff; }
+    .stop-btn { border-color: #ff0055; color: #ff0055; background: rgba(255, 0, 85, 0.1); }
+    .stop-btn:active { background: #ff0055; color: #fff; box-shadow: 0 0 20px #ff0055; }
+    .honk-btn { width: 100%; margin-top: 10px; background: rgba(255, 235, 59, 0.1); color: #ffeb3b; border: 1px solid #ffeb3b; height: 40px; font-weight: bold; }
+    .honk-btn:active { background: #ffeb3b; color: #000; }
+    
+    /* INPUT FIELD STYLING */
+    input[type=text] { width: 95%; background: #000; border: 1px solid #00ff88; color: #00ff88; padding: 10px; font-family: inherit; font-size: 16px; margin-bottom: 5px; margin-top: 15px; }
+    
+    .mission-row { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
+    .m-btn { flex: 1; min-width: 60px; padding: 10px; border: 1px solid #555; background: #111; color: #555; font-family: inherit; font-size: 14px; cursor: pointer; transition: all 0.2s; }
+    .m-btn.selected { border-color: #ff9800; color: #ff9800; background: rgba(255, 152, 0, 0.2); box-shadow: 0 0 15px #ff9800; }
+    .act-btn.selected { border-color: #00f3ff; color: #00f3ff; background: rgba(0, 243, 255, 0.2); box-shadow: 0 0 15px #00f3ff; }
+    .car-btn.selected { border-color: #d0f; color: #d0f; background: rgba(200, 0, 255, 0.2); box-shadow: 0 0 15px #d0f; }
+    
+    .auto-toggle { width: 100%; padding: 15px; font-family: 'Share Tech Mono', monospace; font-size: 16px; border: 2px solid #333; background: #111; color: #555; cursor: pointer; clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); transition: all 0.3s; }
+    .auto-on { border-color: #00ff88; color: #00ff88; background: rgba(0, 255, 136, 0.1); box-shadow: 0 0 25px rgba(0, 255, 136, 0.2); text-shadow: 0 0 5px #00ff88; }
+    
+    .console { grid-column: 1 / -1; height: 60px; background: #000; border: 1px solid #333; padding: 10px; font-size: 12px; color: #aaa; display: flex; flex-direction: column-reverse; overflow: hidden; box-shadow: inset 0 0 10px #000;}
+    .log-line:first-child { color: #00f3ff; text-shadow: 0 0 5px #00f3ff; }
+    
+    .led-row { display: flex; justify-content: center; gap: 15px; margin-bottom: 5px; }
+    .led { width: 40px; height: 10px; border: 1px solid #555; background: #222; transition: background 0.1s; }
+    .led.active { background: #00f3ff; box-shadow: 0 0 15px #00f3ff; border-color: #fff; }
+    
+    /* GRAPHS & ANIMATIONS */
+    #histCanvas { width: 100%; height: 50px; background: #050505; border: 1px solid #333; margin: 5px 0 5px 0; }
+    #beatCanvas { width: 100%; height: 20px; background: #000; border-top: 1px dashed #004400; margin-bottom: 5px; opacity: 0.7; }
+    #uavCanvas { width: 100%; height: 80px; background: #001100; border: 1px solid #005500; margin-top: 5px; box-shadow: inset 0 0 10px #003300; }
+  </style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between;">
+    <div id="pingDisplay">PING: --ms</div>
+    <div id="rssiDisplay" style="font-size:12px; color:#666;">AP: AIML-Bot</div>
+  </div>
+  <header><h1>MK-12 LOGISTICS</h1></header>
+  <div class="grid-container">
+    
+    <!-- DATABASE INPUT -->
+    <div class="panel" style="grid-column: 1 / -1;">
+      <div class="panel-title">MANIFEST ENTRY</div>
+      <input type="text" id="cargoName" placeholder="Enter Product Name (e.g. Vaccines)">
+      <div style="font-size: 10px; color: #666; text-align:right;">LEAVE EMPTY TO AUTO-GENERATE ID</div>
+    </div>
 
+    <!-- TELEMETRY -->
+    <div class="panel">
+      <div class="panel-title">LIVE SENSORS</div>
+      <div class="led-row">
+        <div id="ledL" class="led"></div>
+        <div id="ledM" class="led"></div>
+        <div id="ledR" class="led"></div>
+      </div>
+      <canvas id="histCanvas"></canvas>
+      <canvas id="beatCanvas"></canvas>
+      <div style="text-align:center; font-size:12px;">
+        DIST: <span id="distVal" style="color:#fff; font-weight:bold; font-size:14px;">--</span>cm | CARGO: <span id="cSt" style="color:#555">--</span>
+      </div>
+      <canvas id="uavCanvas"></canvas> <!-- FAKE UAV MAP -->
+    </div>
+    <!-- MANUAL -->
+    <div class="panel">
+      <div class="panel-title">MANUAL</div>
+      <div class="d-pad">
+        <div></div><button class="btn" onmousedown="startDr('F')" onmouseup="stopDr()" ontouchstart="startDr('F')" ontouchend="stopDr()">▲</button><div></div>
+        <button class="btn" onmousedown="startDr('L')" onmouseup="stopDr()" ontouchstart="startDr('L')" ontouchend="stopDr()">◀</button>
+        <button class="btn stop-btn" onclick="stopDr()">■</button>
+        <button class="btn" onmousedown="startDr('R')" onmouseup="stopDr()" ontouchstart="startDr('R')" ontouchend="stopDr()">▶</button>
+        <div></div><button class="btn" onmousedown="startDr('B')" onmouseup="stopDr()" ontouchstart="startDr('B')" ontouchend="stopDr()">▼</button><div></div>
+      </div>
+      <button class="btn honk-btn" onclick="fetch('/honk')">AUDIO SIGNAL</button>
+      <button class="btn honk-btn" style="border-color:#ff9800; color:#ff9800; margin-top:5px;" onclick="fetch('/testAI')">TEST CONNECTION</button>
+    </div>
+    <!-- MISSION -->
+    <div class="panel" style="grid-column: 1 / -1;">
+      <div class="panel-title">MISSION CONFIG</div>
+      <div class="mission-row">
+        <button id="btnA" class="m-btn" onclick="sel('t','A','7255FE03')">TAG A</button>
+        <button id="btnB" class="m-btn" onclick="sel('t','B','827EFC03')">TAG B</button>
+        <button id="btnC" class="m-btn" onclick="sel('t','C','99F5FB03')">TAG C</button>
+        <button id="btnAny" class="m-btn" onclick="sel('t','Any','ANY')">ANY</button>
+      </div>
+      <div class="mission-row">
+        <button id="actL" class="m-btn act-btn" onclick="sel('a',1,0)">LEFT</button>
+        <button id="actS" class="m-btn act-btn selected" onclick="sel('a',0,0)">STOP</button>
+        <button id="actR" class="m-btn act-btn" onclick="sel('a',2,0)">RIGHT</button>
+        <button id="actU" class="m-btn act-btn" onclick="sel('a',3,0)">U-TURN</button>
+      </div>
+      <div class="mission-row">
+        <button id="cN" class="m-btn car-btn selected" onclick="sel('c',0,0)">NIL</button>
+        <button id="cL" class="m-btn car-btn" onclick="sel('c',1,0)">LOAD</button>
+        <button id="cU" class="m-btn car-btn" onclick="sel('c',2,0)">UNLOAD</button>
+      </div>
+      <div style="font-size:10px; text-align:center; color:#666;">CONFIRMED: <span id="confMsg">NONE</span></div>
+      <button id="autoBtn" class="auto-toggle" onclick="engageAuto()">ENGAGE DELIVERY</button>
+    </div>
+    <button class="reset-btn" onclick="if(confirm('REBOOT?')) fetch('/reset')" style="grid-column:1/-1;">⚠ SYSTEM REBOOT ⚠</button>
+    <div class="panel console" id="console"><div class="log-line">> SYSTEM READY</div></div>
+  </div>
+  <script>
+    var selTag="", selAct=0, selCar=0;
+    var isDriving = false;
+    var histData = new Array(50).fill(0);
+    var hCtx = document.getElementById('histCanvas').getContext('2d');
+    var bCtx = document.getElementById('beatCanvas').getContext('2d');
+    var uCtx = document.getElementById('uavCanvas').getContext('2d');
+    var beatX = 0;
+    var uavDots = [];
+    var driveInterval = null;
+
+    function sel(type, id, val) {
+      if(type=='t') { selTag=val; document.querySelectorAll('.m-btn').forEach(b => { if(b.id.startsWith('btn')) b.classList.remove('selected'); }); document.getElementById('btn'+id).classList.add('selected'); }
+      if(type=='a') { selAct=id; document.querySelectorAll('.act-btn').forEach(b => b.classList.remove('selected')); if(id==0)document.getElementById('actS').classList.add('selected'); if(id==1)document.getElementById('actL').classList.add('selected'); if(id==2)document.getElementById('actR').classList.add('selected'); if(id==3)document.getElementById('actU').classList.add('selected'); }
+      if(type=='c') { selCar=id; document.querySelectorAll('.car-btn').forEach(b => b.classList.remove('selected')); if(id==0)document.getElementById('cN').classList.add('selected'); if(id==1)document.getElementById('cL').classList.add('selected'); if(id==2)document.getElementById('cU').classList.add('selected'); }
+      // Don't send immediately on selection anymore, wait for ENGAGE
+    }
+    
+    function engageAuto() { 
+      if(selTag === "") { alert("SELECT DESTINATION!"); return; } 
+      
+      let prod = document.getElementById('cargoName').value;
+      // Encode URI to handle spaces in names like "Medical Kit"
+      fetch("/setMis?tag="+selTag+"&act="+selAct+"&car="+selCar+"&prod="+encodeURIComponent(prod))
+        .then(() => fetch("/toggleAuto")); 
+    }
+    
+    function drawHist() {
+      hCtx.width = hCtx.canvas.clientWidth; hCtx.height = hCtx.canvas.clientHeight;
+      let w=hCtx.canvas.width, h=hCtx.canvas.height;
+      hCtx.clearRect(0,0,w,h); 
+      
+      // Glow Effect
+      hCtx.shadowBlur = 10; hCtx.shadowColor = "#00ff00";
+      hCtx.strokeStyle='#00ff00'; hCtx.lineWidth = 2; hCtx.beginPath();
+      
+      let step = w/histData.length;
+      for(let i=0; i<histData.length; i++) {
+        let val = Math.min(100, histData[i]);
+        let y = h - (val/100*h);
+        if(i==0) hCtx.moveTo(0,y); else hCtx.lineTo(i*step, y);
+      }
+      hCtx.stroke();
+      hCtx.shadowBlur = 0; // Reset
+    }
+    
+    function drawBeat() {
+      let w = bCtx.canvas.clientWidth; let h = bCtx.canvas.clientHeight;
+      bCtx.clearRect(0,0,w,h);
+      bCtx.fillStyle = '#003300'; bCtx.fillRect(0,0,w,h);
+      bCtx.fillStyle = '#00ff88';
+      beatX += 4; if(beatX > w) beatX = 0;
+      bCtx.fillRect(beatX, 0, 10, h);
+      
+      // UAV MAP ANIMATION
+      w = uCtx.canvas.clientWidth; h = uCtx.canvas.clientHeight;
+      uCtx.clearRect(0,0,w,h);
+      
+      // Grid
+      uCtx.strokeStyle = '#004400'; uCtx.lineWidth = 1;
+      uCtx.beginPath();
+      for(let x=0; x<w; x+=20) { uCtx.moveTo(x,0); uCtx.lineTo(x,h); }
+      for(let y=0; y<h; y+=20) { uCtx.moveTo(0,y); uCtx.lineTo(w,y); }
+      uCtx.stroke();
+      
+      // Random Dots
+      if(Math.random() > 0.95) uavDots.push({x:Math.random()*w, y:Math.random()*h, a:1});
+      
+      uCtx.fillStyle = '#00ff00';
+      for(let i=0; i<uavDots.length; i++) {
+        let d = uavDots[i];
+        uCtx.globalAlpha = d.a;
+        uCtx.beginPath(); uCtx.arc(d.x, d.y, 2, 0, Math.PI*2); uCtx.fill();
+        d.a -= 0.02;
+      }
+      uavDots = uavDots.filter(d => d.a > 0);
+      uCtx.globalAlpha = 1;
+      
+      requestAnimationFrame(drawBeat);
+    }
+    drawBeat();
+
+    function poll() {
+      if(isDriving) { setTimeout(poll, 500); return; }
+      let t = Date.now();
+      fetch("/status").then(r=>r.json()).then(d=>{
+        document.getElementById('pingDisplay').innerText = "PING: " + (Date.now()-t) + "ms";
+        document.getElementById('distVal').innerText = d.dist;
+        document.getElementById('cSt').innerText = d.c ? "EMPTY" : "LOADED";
+        document.getElementById('cSt').style.color = d.c ? "#555" : "#d0f";
+        document.getElementById('ledL').className = d.l ? 'led active' : 'led';
+        document.getElementById('ledM').className = d.m ? 'led active' : 'led';
+        document.getElementById('ledR').className = d.r ? 'led active' : 'led';
+        document.getElementById('confMsg').innerText = (d.target==""?"NONE":d.tag.substring(0,4)) + " > " + ["STOP","L","R","U"][d.act];
+        let btn = document.getElementById('autoBtn');
+        if(d.mode == "AUTO") { btn.innerText = "ABORT"; btn.classList.add("auto-on"); } else { btn.innerText = "ENGAGE DELIVERY"; btn.classList.remove("auto-on"); }
+        let c = document.getElementById('console');
+        if(c.firstChild.innerText !== "> " + d.log) { let l = document.createElement("div"); l.className="log-line"; l.innerText="> "+d.log; c.prepend(l); if(c.children.length>5) c.lastChild.remove(); }
+        histData.shift(); histData.push(d.dist); drawHist();
+        setTimeout(poll, 200);
+      }).catch(e => setTimeout(poll, 200));
+    }
+    poll(); 
+    
+    // HEARTBEAT DRIVE FUNCTION (Fixes stuck button issues)
+    function startDr(d) {
+      if(driveInterval) clearInterval(driveInterval);
+      fetch('/drive?dir='+d); // Immediate fire
+      driveInterval = setInterval(() => {
+        fetch('/drive?dir='+d);
+      }, 200); // Repeat every 200ms
+    }
+    
+    function stopDr() {
+      if(driveInterval) clearInterval(driveInterval);
+      driveInterval = null;
+      fetch('/drive?dir=S');
+    }
+  </script>
+</body>
+</html>
