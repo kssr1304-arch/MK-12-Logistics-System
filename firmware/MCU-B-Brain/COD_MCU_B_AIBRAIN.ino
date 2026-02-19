@@ -1,13 +1,9 @@
-/* MK-12 IOT BRAIN (V2 NTP Time + Auto-Indexing)
-   =============================================
-   UPDATES:
-   1. NTP TIME: Fetches real-world date/time from the internet on boot.
-   2. AUTO-INDEX: Adds a continuous 'log_id' to every database entry.
-   3. ZERO-AI LOGGING: Uses high-speed manual JSON with precise timestamps.
-   4. CHANNELS:
-      - MAIN: Sarcastic personality.
-      - CONSOLE: Raw system telemetry + Time Sync status.
-      - LOG: Strict JSON with Index & Timestamp for Excel/Python.
+/* MK-12 IOT BRAIN (V2.8 - HYBRID WIFI/HOTSPOT SUPPORT)
+   ============================================================
+   1. HYBRID UPLINK: Supports both Mobile Hotspot and Home WiFi with auto-failover.
+   2. STABILITY+: Enhanced WiFi state management to prevent driver conflicts.
+   3. COLLISION FIX: Servo locks to 90 degrees when an object is detected.
+   4. FILTERS: 5s RFID cooldown and 3s Hardware Alert cooldown active.
 */
 
 #include <ESP32Servo.h>
@@ -26,18 +22,18 @@ const int STATUS_LED = 2;
 #define RXD2 16 
 #define TXD2 17 
 
-// --- WIFI ---
+// --- HYBRID WIFI LIST ---
 struct Creds { const char* ssid; const char* pass; };
 Creds wifiList[] = {
-  {"Excitel_SIVAJAY_2.4Ghz", "good4$all"},
-  {"AndroidAPD31F", "sivandroid"},
-  {"Hotspot", "hotspot_pass"}
+  {"AndroidAPD31F", "sivandroid"},      // Priority 1: Mobile Hotspot
+  {"Excitel_SIVAJAY_2.4Ghz", "good4$all"}, // Priority 2: Home WiFi
+  {"Hotspot", "hotspot_pass"}           // Priority 3: Generic Fallback
 };
 const int WIFI_COUNT = sizeof(wifiList)/sizeof(wifiList[0]);
 
 // --- NTP SETTINGS ---
 const char* ntpServer = "pool.ntp.org";
-const long  gmtOffset_sec = 19800; // India offset (5.5 * 3600)
+const long  gmtOffset_sec = 19800; // India offset
 const int   daylightOffset_sec = 0;
 
 // --- DISCORD WEBHOOKS ---
@@ -67,7 +63,14 @@ int sweepState = 0;
 unsigned long lastMove = 0;
 unsigned long waitStart = 0; 
 bool wifiConnected = false;
-int logCounter = 1; // Auto-incrementing index
+int logCounter = 1; 
+
+// --- FILTERING VARIABLES ---
+String lastProcessedMsg = "";
+unsigned long lastMsgTime = 0;
+unsigned long lastHardwareAlertTime = 0; 
+const unsigned long COOLDOWN_MS = 5000;      // 5s for RFID
+const unsigned long HARDWARE_COOLDOWN = 3000; // 3s for Collision
 
 // Forward Declarations
 void sendToWebhook(const char* url, String message, bool isJsonBlock = false);
@@ -78,36 +81,48 @@ String getTimestamp();
 // =============================================================
 
 void connectToWiFi() {
+  Serial.println("\n[SYSTEM] INITIALIZING HYBRID WIFI STACK...");
+  
+  // Clean start for the WiFi driver
+  WiFi.persistent(false); 
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP("SciFi-AI-Node", "12345678");
-  Serial.println("\n[SYSTEM] SEARCHING FOR UPLINK...");
+  WiFi.softAP("SciFi-AI-Node", "12345678"); 
   
   for(int i=0; i<WIFI_COUNT; i++) {
-    Serial.printf("[SYSTEM] Trying: %s\n", wifiList[i].ssid);
+    // Force disconnect to clear the "sta is connecting" error from previous attempts
+    WiFi.disconnect(true);
+    delay(500); 
+    
+    Serial.printf("[WIFI] Scanning for: %s\n", wifiList[i].ssid);
     WiFi.begin(wifiList[i].ssid, wifiList[i].pass);
     
     int attempts = 0;
-    while(WiFi.status() != WL_CONNECTED && attempts < 20) { 
-      digitalWrite(STATUS_LED, !digitalRead(STATUS_LED)); delay(200); Serial.print("."); attempts++;
+    // We use a high attempt count (30) to give slow hotspots time to respond
+    while(WiFi.status() != WL_CONNECTED && attempts < 30) { 
+      digitalWrite(STATUS_LED, !digitalRead(STATUS_LED)); 
+      delay(300); 
+      Serial.print("."); 
+      attempts++;
     }
     
     if(WiFi.status() == WL_CONNECTED) {
-      Serial.printf("\n[SYSTEM] CONNECTED! IP: %s\n", WiFi.localIP().toString().c_str());
+      Serial.printf("\n[WIFI] CONNECTED TO %s! IP: %s\n", wifiList[i].ssid, WiFi.localIP().toString().c_str());
       digitalWrite(STATUS_LED, HIGH); 
       wifiConnected = true;
-      
-      // Initialize NTP Time
       configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-      Serial.println("[TIME] Syncing with NTP Server...");
       return;
+    } else {
+      Serial.println("\n[WIFI] No response from uplink. Trying next profile...");
     }
   }
+  
+  Serial.println("[SYSTEM] CRITICAL: NO NETWORK FOUND. OPERATING IN LOCAL MODE.");
 }
 
 String getTimestamp() {
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
-    return "2024-00-00 00:00:00"; // Fallback if sync fails
+    return "2026-02-19 00:00:00"; 
   }
   char timeStringBuff[30];
   strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%d %H:%M:%S", &timeinfo);
@@ -127,7 +142,7 @@ void setup() {
   connectToWiFi();
   
   if(WiFi.status() == WL_CONNECTED) {
-     sendToWebhook(HOOK_CONSOLE, "🟩 **MK-12 BRAIN ONLINE.**\nMode: NTP-Synced / Auto-Index\nTime: " + getTimestamp());
+     sendToWebhook(HOOK_CONSOLE, "🟩 **MK-12 BRAIN ONLINE.**\nMode: Hybrid WiFi Support (V2.8)\nTime: " + getTimestamp());
   }
 
   Serial.println("[SYSTEM] LISTENING FOR COMMANDER ON PIN 16...");
@@ -165,7 +180,6 @@ String buildManualJSON(String msg) {
 
 void sendToWebhook(const char* url, String message, bool isJsonBlock) {
   if(WiFi.status() != WL_CONNECTED) return;
-  
   delay(200); 
 
   HTTPClient http; WiFiClientSecure client; client.setInsecure();
@@ -192,30 +206,49 @@ void sendToWebhook(const char* url, String message, bool isJsonBlock) {
 }
 
 void processEvent(String msg) {
+  // --- SPAM & DUPLICATE FILTERS ---
+  bool isHardwareAlert = msg.startsWith("(COLLISION)") || msg.startsWith("(INFO)");
+  
+  if (isHardwareAlert) {
+      if (millis() - lastHardwareAlertTime < HARDWARE_COOLDOWN) return;
+      lastHardwareAlertTime = millis();
+  } else {
+      if (msg == lastProcessedMsg && (millis() - lastMsgTime < COOLDOWN_MS)) return;
+      lastProcessedMsg = msg;
+      lastMsgTime = millis();
+  }
+
   Serial.println("\n--- EVENT ---");
   Serial.println("[RX]: " + msg);
   
-  // Animation
-  myServo.write(45); digitalWrite(STATUS_LED, LOW); delay(200); digitalWrite(STATUS_LED, HIGH);
+  // Force animation override to Center
+  pos = 90;
+  sweepState = 2;       
+  waitStart = millis(); 
+  myServo.write(pos);
+
+  digitalWrite(STATUS_LED, LOW); delay(100); digitalWrite(STATUS_LED, HIGH);
   
-  // 1. Console: Raw Telemetry + Timestamp
+  if (!isHardwareAlert) {
+      // Tilt briefly to show we are scanning the RFID
+      myServo.write(45); 
+      delay(300);
+      myServo.write(90);
+  }
+  
   sendToWebhook(HOOK_CONSOLE, "🔹 **RAW:** `" + msg + "` [" + getTimestamp() + "]");
 
-  // 2. Main: Personality
-  int sarcasmIndex = random(0, 10);
-  sendToWebhook(HOOK_MAIN, "🤖 **MK-12:** " + String(LOCAL_SARCASM[sarcasmIndex]));
+  if(!isHardwareAlert) {
+      int sarcasmIndex = random(0, 10);
+      sendToWebhook(HOOK_MAIN, "🤖 **MK-12:** " + String(LOCAL_SARCASM[sarcasmIndex]));
 
-  // 3. Log: Database JSON (Continuous Indexing)
-  bool isAutoDelivery = (msg.indexOf("DELIVERY COMPLETE") >= 0) && (msg.indexOf("(AUTO)") >= 0);
-  bool isManifest = (msg.indexOf("MANIFEST UPDATED") >= 0);
-
-  if(isAutoDelivery || isManifest) {
-      Serial.println("[LOG] Indexing Log #" + String(logCounter));
-      String jsonLog = buildManualJSON(msg);
-      sendToWebhook(HOOK_LOG, jsonLog, true); 
+      if(msg.indexOf("DELIVERY COMPLETE") >= 0 || msg.indexOf("MANIFEST UPDATED") >= 0) {
+          Serial.println("[LOG] Indexing Log #" + String(logCounter));
+          String jsonLog = buildManualJSON(msg);
+          sendToWebhook(HOOK_LOG, jsonLog, true); 
+      }
   }
 
-  myServo.write(90); digitalWrite(STATUS_LED, HIGH); 
   Serial.println("[SYSTEM] Process Complete.");
 }
 
@@ -229,7 +262,7 @@ void loop() {
     }
   }
 
-  // Servo Animation
+  // --- OVERRIDE LOGIC ---
   if(sweepState != 2 && millis() - lastMove > 30) {
     lastMove = millis();
     if (sweepState == 0) { pos++; if (pos >= 120) sweepState = 1; } 
@@ -237,5 +270,9 @@ void loop() {
     else if (sweepState == 3) { pos++; if (pos >= 90) { sweepState = 2; waitStart = millis(); } }
     myServo.write(pos);
   }
-  if (sweepState == 2 && millis() - waitStart > 3000) { sweepState = 0; }
+
+  // Handle the 3-second wait state reset after an event
+  if (sweepState == 2 && millis() - waitStart > 3000) { 
+      sweepState = 0; 
+  }
 }
